@@ -1,0 +1,519 @@
+{% extends "base.html" %}
+
+{% block title %}策略管理 - MTAutoFreeBT{% endblock %}
+{% block page_title %}策略管理{% endblock %}
+
+{% block page_actions %}
+<button type="button" class="btn btn-primary" onclick="showCreateStrategyModal()">
+    <i class="fas fa-plus me-1"></i>新建策略
+</button>
+<button type="button" class="btn btn-outline-secondary" onclick="refreshStrategies()">
+    <i class="fas fa-sync-alt me-1"></i>刷新
+</button>
+{% endblock %}
+
+{% block content %}
+<!-- 当前策略状态 -->
+<div class="row mb-4">
+    <div class="col-12">
+        <div class="card">
+            <div class="card-header">
+                <h6 class="mb-0">当前策略</h6>
+            </div>
+            <div class="card-body">
+                <div class="row align-items-center">
+                    <div class="col-md-8">
+                        <h5 id="currentStrategyName">未设置</h5>
+                        <p class="text-muted mb-0" id="currentStrategyDesc">请选择一个策略作为当前策略</p>
+                    </div>
+                    <div class="col-md-4 text-end">
+                        <span class="badge bg-success" id="currentStrategyStatus">未激活</span>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- 策略列表 -->
+<div class="row">
+    <div class="col-12">
+        <div class="card">
+            <div class="card-header">
+                <h6 class="mb-0">可用策略</h6>
+            </div>
+            <div class="card-body">
+                <div class="row" id="strategiesContainer">
+                    <!-- 策略卡片将在这里动态生成 -->
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- 创建策略模态框 -->
+<div class="modal fade" id="createStrategyModal" tabindex="-1">
+    <div class="modal-dialog modal-lg">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title">创建新策略</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+            </div>
+            <div class="modal-body">
+                <form id="createStrategyForm">
+                    <div class="row">
+                        <div class="col-md-6">
+                            <div class="mb-3">
+                                <label for="strategyName" class="form-label">策略名称</label>
+                                <input type="text" class="form-control" id="strategyName" required>
+                            </div>
+                        </div>
+                        <div class="col-md-6">
+                            <div class="mb-3">
+                                <label for="strategyType" class="form-label">策略类型</label>
+                                <select class="form-select" id="strategyType" required onchange="updateStrategyConfig()">
+                                    <option value="">选择策略类型</option>
+                                    <option value="size">大小策略</option>
+                                    <option value="ratio">比率策略</option>
+                                    <option value="time">时间策略</option>
+                                    <option value="composite">复合策略</option>
+                                </select>
+                            </div>
+                        </div>
+                    </div>
+                    
+                    <div class="mb-3">
+                        <label for="strategyDescription" class="form-label">策略描述</label>
+                        <textarea class="form-control" id="strategyDescription" rows="2"></textarea>
+                    </div>
+                    
+                    <div id="strategyConfigArea">
+                        <!-- 策略配置将在这里动态生成 -->
+                    </div>
+                </form>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">取消</button>
+                <button type="button" class="btn btn-primary" onclick="createStrategy()">创建策略</button>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- 编辑策略模态框 -->
+<div class="modal fade" id="editStrategyModal" tabindex="-1">
+    <div class="modal-dialog modal-lg">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title">编辑策略</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+            </div>
+            <div class="modal-body" id="editStrategyContent">
+                <!-- 编辑内容将在这里动态生成 -->
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">取消</button>
+                <button type="button" class="btn btn-primary" onclick="saveStrategyChanges()">保存更改</button>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- 策略详情模态框 -->
+<div class="modal fade" id="strategyDetailModal" tabindex="-1">
+    <div class="modal-dialog modal-lg">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title">策略详情</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+            </div>
+            <div class="modal-body" id="strategyDetailContent">
+                <!-- 详情内容将在这里动态生成 -->
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">关闭</button>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block extra_js %}
+<script>
+let strategies = [];
+let currentEditingStrategy = null;
+
+// 页面加载完成后初始化
+document.addEventListener('DOMContentLoaded', function() {
+    loadStrategies();
+});
+
+// 加载策略列表
+async function loadStrategies() {
+    try {
+        showLoading();
+        const data = await apiRequest('/api/strategies');
+        strategies = data.strategies;
+        renderStrategies();
+        updateCurrentStrategy();
+        hideLoading();
+    } catch (error) {
+        console.error('加载策略列表失败:', error);
+        hideLoading();
+    }
+}
+
+// 渲染策略列表
+function renderStrategies() {
+    const container = document.getElementById('strategiesContainer');
+    container.innerHTML = '';
+    
+    if (strategies.length === 0) {
+        container.innerHTML = `
+            <div class="col-12 text-center py-5">
+                <i class="fas fa-cogs fa-3x text-muted mb-3"></i>
+                <h5 class="text-muted">暂无策略</h5>
+                <p class="text-muted">点击"新建策略"按钮创建您的第一个策略</p>
+            </div>
+        `;
+        return;
+    }
+    
+    strategies.forEach(strategy => {
+        const col = document.createElement('div');
+        col.className = 'col-md-6 col-lg-4 mb-4';
+        col.innerHTML = `
+            <div class="card h-100">
+                <div class="card-body">
+                    <div class="d-flex justify-content-between align-items-start mb-3">
+                        <h6 class="card-title mb-0">${strategy.name}</h6>
+                        <div class="dropdown">
+                            <button class="btn btn-sm btn-outline-secondary dropdown-toggle" type="button" data-bs-toggle="dropdown">
+                                <i class="fas fa-ellipsis-v"></i>
+                            </button>
+                            <ul class="dropdown-menu">
+                                <li><a class="dropdown-item" href="#" onclick="setCurrentStrategy('${strategy.name}')">
+                                    <i class="fas fa-check me-2"></i>设为当前策略
+                                </a></li>
+                                <li><a class="dropdown-item" href="#" onclick="showStrategyDetail('${strategy.name}')">
+                                    <i class="fas fa-eye me-2"></i>查看详情
+                                </a></li>
+                                <li><a class="dropdown-item" href="#" onclick="editStrategy('${strategy.name}')">
+                                    <i class="fas fa-edit me-2"></i>编辑
+                                </a></li>
+                                <li><hr class="dropdown-divider"></li>
+                                <li><a class="dropdown-item text-danger" href="#" onclick="deleteStrategy('${strategy.name}')">
+                                    <i class="fas fa-trash me-2"></i>删除
+                                </a></li>
+                            </ul>
+                        </div>
+                    </div>
+                    
+                    <div class="mb-3">
+                        <span class="badge bg-primary">${strategy.info.type || '未知类型'}</span>
+                        ${strategy.is_current ? '<span class="badge bg-success ms-1">当前策略</span>' : ''}
+                    </div>
+                    
+                    <p class="card-text text-muted small">
+                        ${strategy.info.description || '暂无描述'}
+                    </p>
+                    
+                    <div class="d-grid">
+                        <button class="btn btn-outline-primary btn-sm" onclick="setCurrentStrategy('${strategy.name}')" ${strategy.is_current ? 'disabled' : ''}>
+                            ${strategy.is_current ? '当前策略' : '设为当前策略'}
+                        </button>
+                    </div>
+                </div>
+            </div>
+        `;
+        container.appendChild(col);
+    });
+}
+
+// 更新当前策略显示
+function updateCurrentStrategy() {
+    const currentStrategy = strategies.find(s => s.is_current);
+    
+    if (currentStrategy) {
+        document.getElementById('currentStrategyName').textContent = currentStrategy.name;
+        document.getElementById('currentStrategyDesc').textContent = currentStrategy.info.description || '暂无描述';
+        document.getElementById('currentStrategyStatus').textContent = '已激活';
+        document.getElementById('currentStrategyStatus').className = 'badge bg-success';
+    } else {
+        document.getElementById('currentStrategyName').textContent = '未设置';
+        document.getElementById('currentStrategyDesc').textContent = '请选择一个策略作为当前策略';
+        document.getElementById('currentStrategyStatus').textContent = '未激活';
+        document.getElementById('currentStrategyStatus').className = 'badge bg-warning';
+    }
+}
+
+// 设置当前策略
+async function setCurrentStrategy(strategyName) {
+    try {
+        await apiRequest(`/api/strategies/${strategyName}`, {
+            method: 'PUT',
+            body: JSON.stringify({ action: 'set_current' })
+        });
+        
+        showNotification(`策略 ${strategyName} 设置成功`);
+        loadStrategies();
+    } catch (error) {
+        console.error('设置当前策略失败:', error);
+        showNotification('设置策略失败', 'danger');
+    }
+}
+
+// 显示创建策略模态框
+function showCreateStrategyModal() {
+    const modal = new bootstrap.Modal(document.getElementById('createStrategyModal'));
+    document.getElementById('createStrategyForm').reset();
+    document.getElementById('strategyConfigArea').innerHTML = '';
+    modal.show();
+}
+
+// 更新策略配置区域
+function updateStrategyConfig() {
+    const strategyType = document.getElementById('strategyType').value;
+    const configArea = document.getElementById('strategyConfigArea');
+    
+    if (!strategyType) {
+        configArea.innerHTML = '';
+        return;
+    }
+    
+    let configHtml = '';
+    
+    switch (strategyType) {
+        case 'size':
+            configHtml = `
+                <div class="row">
+                    <div class="col-md-6">
+                        <div class="mb-3">
+                            <label class="form-label">最小大小 (GB)</label>
+                            <input type="number" class="form-control" name="min_size" value="1" min="0" step="0.1">
+                        </div>
+                    </div>
+                    <div class="col-md-6">
+                        <div class="mb-3">
+                            <label class="form-label">最大大小 (GB)</label>
+                            <input type="number" class="form-control" name="max_size" value="30" min="0" step="0.1">
+                        </div>
+                    </div>
+                </div>
+                <div class="mb-3">
+                    <label class="form-label">最小磁盘空间 (GB)</label>
+                    <input type="number" class="form-control" name="min_disk_space" value="80" min="0" step="1">
+                </div>
+            `;
+            break;
+            
+        case 'ratio':
+            configHtml = `
+                <div class="row">
+                    <div class="col-md-6">
+                        <div class="mb-3">
+                            <label class="form-label">最小做种数</label>
+                            <input type="number" class="form-control" name="min_seeders" value="3" min="0">
+                        </div>
+                    </div>
+                    <div class="col-md-6">
+                        <div class="mb-3">
+                            <label class="form-label">最小比率</label>
+                            <input type="number" class="form-control" name="min_ratio" value="0.2" min="0" step="0.1">
+                        </div>
+                    </div>
+                </div>
+                <div class="row">
+                    <div class="col-md-6">
+                        <div class="mb-3">
+                            <label class="form-label">最大比率</label>
+                            <input type="number" class="form-control" name="max_ratio" value="5.0" min="0" step="0.1">
+                        </div>
+                    </div>
+                    <div class="col-md-6">
+                        <div class="mb-3">
+                            <div class="form-check mt-4">
+                                <input class="form-check-input" type="checkbox" name="prefer_high_seeders" checked>
+                                <label class="form-check-label">偏好高做种数</label>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            `;
+            break;
+            
+        case 'time':
+            configHtml = `
+                <div class="row">
+                    <div class="col-md-6">
+                        <div class="mb-3">
+                            <label class="form-label">最大发布时间 (小时)</label>
+                            <input type="number" class="form-control" name="max_publish_age" value="24" min="0">
+                        </div>
+                    </div>
+                    <div class="col-md-6">
+                        <div class="mb-3">
+                            <label class="form-label">最小免费时间 (小时)</label>
+                            <input type="number" class="form-control" name="min_free_time" value="10" min="0">
+                        </div>
+                    </div>
+                </div>
+                <div class="row">
+                    <div class="col-md-6">
+                        <div class="mb-3">
+                            <div class="form-check">
+                                <input class="form-check-input" type="checkbox" name="prefer_new_torrents" checked>
+                                <label class="form-check-label">偏好新种子</label>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="col-md-6">
+                        <div class="mb-3">
+                            <label class="form-label">时间衰减因子</label>
+                            <input type="number" class="form-control" name="time_decay_factor" value="0.05" min="0" max="1" step="0.01">
+                        </div>
+                    </div>
+                </div>
+            `;
+            break;
+            
+        case 'composite':
+            configHtml = `
+                <div class="mb-3">
+                    <label class="form-label">组合类型</label>
+                    <select class="form-select" name="combination_type">
+                        <option value="and">AND (所有策略都必须满足)</option>
+                        <option value="or">OR (任一策略满足即可)</option>
+                        <option value="weighted">加权平均</option>
+                    </select>
+                </div>
+                <div class="alert alert-info">
+                    <i class="fas fa-info-circle me-2"></i>
+                    复合策略允许您组合多个基础策略。请在创建后编辑详细配置。
+                </div>
+            `;
+            break;
+    }
+    
+    configArea.innerHTML = configHtml;
+}
+
+// 创建策略
+async function createStrategy() {
+    try {
+        const form = document.getElementById('createStrategyForm');
+        const formData = new FormData(form);
+        
+        const strategyData = {
+            name: formData.get('strategyName'),
+            type: formData.get('strategyType'),
+            description: formData.get('strategyDescription'),
+            config: {}
+        };
+        
+        // 收集配置参数
+        const configInputs = form.querySelectorAll('[name^="min_"], [name^="max_"], [name^="prefer_"], [name^="time_"], [name^="combination_"]');
+        configInputs.forEach(input => {
+            if (input.type === 'checkbox') {
+                strategyData.config[input.name] = input.checked;
+            } else {
+                strategyData.config[input.name] = input.value;
+            }
+        });
+        
+        // 这里应该调用API创建策略
+        // await apiRequest('/api/strategies', {
+        //     method: 'POST',
+        //     body: JSON.stringify(strategyData)
+        // });
+        
+        showNotification('策略创建成功');
+        bootstrap.Modal.getInstance(document.getElementById('createStrategyModal')).hide();
+        loadStrategies();
+        
+    } catch (error) {
+        console.error('创建策略失败:', error);
+        showNotification('创建策略失败', 'danger');
+    }
+}
+
+// 显示策略详情
+function showStrategyDetail(strategyName) {
+    const strategy = strategies.find(s => s.name === strategyName);
+    if (!strategy) return;
+    
+    const modal = new bootstrap.Modal(document.getElementById('strategyDetailModal'));
+    const content = document.getElementById('strategyDetailContent');
+    
+    content.innerHTML = `
+        <div class="row">
+            <div class="col-md-6">
+                <h6>基本信息</h6>
+                <table class="table table-sm">
+                    <tr><td>名称:</td><td>${strategy.name}</td></tr>
+                    <tr><td>类型:</td><td>${strategy.info.type || '未知'}</td></tr>
+                    <tr><td>状态:</td><td>${strategy.is_current ? '当前策略' : '未激活'}</td></tr>
+                </table>
+            </div>
+            <div class="col-md-6">
+                <h6>配置信息</h6>
+                <pre class="bg-light p-3 rounded"><code>${JSON.stringify(strategy.info.config, null, 2)}</code></pre>
+            </div>
+        </div>
+    `;
+    
+    modal.show();
+}
+
+// 编辑策略
+function editStrategy(strategyName) {
+    const strategy = strategies.find(s => s.name === strategyName);
+    if (!strategy) return;
+    
+    currentEditingStrategy = strategy;
+    const modal = new bootstrap.Modal(document.getElementById('editStrategyModal'));
+    const content = document.getElementById('editStrategyContent');
+    
+    content.innerHTML = `
+        <div class="alert alert-info">
+            <i class="fas fa-info-circle me-2"></i>
+            策略编辑功能正在开发中...
+        </div>
+        <p>当前策略: <strong>${strategy.name}</strong></p>
+        <p>类型: <strong>${strategy.info.type || '未知'}</strong></p>
+    `;
+    
+    modal.show();
+}
+
+// 保存策略更改
+function saveStrategyChanges() {
+    showNotification('策略编辑功能正在开发中');
+    bootstrap.Modal.getInstance(document.getElementById('editStrategyModal')).hide();
+}
+
+// 删除策略
+async function deleteStrategy(strategyName) {
+    if (!confirm(`确定要删除策略 "${strategyName}" 吗？`)) {
+        return;
+    }
+    
+    try {
+        // 这里应该调用API删除策略
+        // await apiRequest(`/api/strategies/${strategyName}`, { method: 'DELETE' });
+        
+        showNotification('策略删除功能正在开发中');
+        loadStrategies();
+    } catch (error) {
+        console.error('删除策略失败:', error);
+        showNotification('删除策略失败', 'danger');
+    }
+}
+
+// 刷新策略列表
+function refreshStrategies() {
+    loadStrategies();
+    showNotification('策略列表已刷新');
+}
+</script>
+{% endblock %} 

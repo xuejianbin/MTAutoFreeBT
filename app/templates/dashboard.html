@@ -1,0 +1,461 @@
+{% extends "base.html" %}
+
+{% block title %}仪表板 - MTAutoFreeBT{% endblock %}
+{% block page_title %}仪表板{% endblock %}
+
+{% block page_actions %}
+<div class="btn-group" role="group">
+    <button type="button" class="btn btn-success" id="startBtn" onclick="startSystem()">
+        <i class="fas fa-play me-1"></i>启动系统
+    </button>
+    <button type="button" class="btn btn-danger" id="stopBtn" onclick="stopSystem()">
+        <i class="fas fa-stop me-1"></i>停止系统
+    </button>
+</div>
+<button type="button" class="btn btn-outline-secondary ms-2" onclick="refreshStats()">
+    <i class="fas fa-sync-alt me-1"></i>刷新
+</button>
+{% endblock %}
+
+{% block content %}
+<!-- 统计卡片 -->
+<div class="row mb-4">
+    <div class="col-xl-3 col-md-6 mb-4">
+        <div class="card stat-card h-100">
+            <div class="card-body">
+                <div class="row no-gutters align-items-center">
+                    <div class="col mr-2">
+                        <div class="text-xs font-weight-bold text-white-50 text-uppercase mb-1">
+                            总种子数
+                        </div>
+                        <div class="h5 mb-0 font-weight-bold text-white" id="totalTorrents">-</div>
+                    </div>
+                    <div class="col-auto">
+                        <i class="fas fa-torrent fa-2x text-white-50"></i>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+    
+    <div class="col-xl-3 col-md-6 mb-4">
+        <div class="card stat-card success h-100">
+            <div class="card-body">
+                <div class="row no-gutters align-items-center">
+                    <div class="col mr-2">
+                        <div class="text-xs font-weight-bold text-white-50 text-uppercase mb-1">
+                            已下载
+                        </div>
+                        <div class="h5 mb-0 font-weight-bold text-white" id="downloadedTorrents">-</div>
+                    </div>
+                    <div class="col-auto">
+                        <i class="fas fa-download fa-2x text-white-50"></i>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+    
+    <div class="col-xl-3 col-md-6 mb-4">
+        <div class="card stat-card warning h-100">
+            <div class="card-body">
+                <div class="row no-gutters align-items-center">
+                    <div class="col mr-2">
+                        <div class="text-xs font-weight-bold text-white-50 text-uppercase mb-1">
+                            已拒绝
+                        </div>
+                        <div class="h5 mb-0 font-weight-bold text-white" id="rejectedTorrents">-</div>
+                    </div>
+                    <div class="col-auto">
+                        <i class="fas fa-times fa-2x text-white-50"></i>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+    
+    <div class="col-xl-3 col-md-6 mb-4">
+        <div class="card stat-card info h-100">
+            <div class="card-body">
+                <div class="row no-gutters align-items-center">
+                    <div class="col mr-2">
+                        <div class="text-xs font-weight-bold text-white-50 text-uppercase mb-1">
+                            下载率
+                        </div>
+                        <div class="h5 mb-0 font-weight-bold text-white" id="downloadRate">-</div>
+                    </div>
+                    <div class="col-auto">
+                        <i class="fas fa-percentage fa-2x text-white-50"></i>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- 今日统计 -->
+<div class="row mb-4">
+    <div class="col-xl-6 col-md-6 mb-4">
+        <div class="card border-left-primary shadow h-100">
+            <div class="card-body">
+                <div class="row no-gutters align-items-center">
+                    <div class="col mr-2">
+                        <div class="text-xs font-weight-bold text-primary text-uppercase mb-1">
+                            今日种子数
+                        </div>
+                        <div class="h5 mb-0 font-weight-bold text-gray-800" id="todayTorrents">-</div>
+                    </div>
+                    <div class="col-auto">
+                        <i class="fas fa-calendar fa-2x text-gray-300"></i>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+    
+    <div class="col-xl-6 col-md-6 mb-4">
+        <div class="card border-left-success shadow h-100">
+            <div class="card-body">
+                <div class="row no-gutters align-items-center">
+                    <div class="col mr-2">
+                        <div class="text-xs font-weight-bold text-success text-uppercase mb-1">
+                            今日下载
+                        </div>
+                        <div class="h5 mb-0 font-weight-bold text-gray-800" id="todayDownloaded">-</div>
+                    </div>
+                    <div class="col-auto">
+                        <i class="fas fa-download fa-2x text-gray-300"></i>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- 图表区域 -->
+<div class="row">
+    <!-- 趋势图 -->
+    <div class="col-xl-8 col-lg-7">
+        <div class="card shadow mb-4">
+            <div class="card-header py-3 d-flex flex-row align-items-center justify-content-between">
+                <h6 class="m-0 font-weight-bold text-primary">最近7天趋势</h6>
+            </div>
+            <div class="card-body">
+                <div class="chart-area">
+                    <canvas id="trendChart"></canvas>
+                </div>
+            </div>
+        </div>
+    </div>
+    
+    <!-- 策略使用统计 -->
+    <div class="col-xl-4 col-lg-5">
+        <div class="card shadow mb-4">
+            <div class="card-header py-3 d-flex flex-row align-items-center justify-content-between">
+                <h6 class="m-0 font-weight-bold text-primary">策略使用统计</h6>
+            </div>
+            <div class="card-body">
+                <div class="chart-pie pt-4 pb-2">
+                    <canvas id="strategyChart"></canvas>
+                </div>
+                <div class="mt-4 text-center small" id="strategyLegend">
+                    <!-- 策略图例将在这里动态生成 -->
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- 系统状态 -->
+<div class="row">
+    <div class="col-12">
+        <div class="card shadow mb-4">
+            <div class="card-header py-3">
+                <h6 class="m-0 font-weight-bold text-primary">系统状态</h6>
+            </div>
+            <div class="card-body">
+                <div class="row">
+                    <div class="col-md-6">
+                        <div class="d-flex align-items-center mb-3">
+                            <div class="flex-shrink-0">
+                                <div class="status-indicator" id="systemStatus">
+                                    <i class="fas fa-circle text-danger"></i>
+                                </div>
+                            </div>
+                            <div class="flex-grow-1 ms-3">
+                                <h6 class="mb-0">系统运行状态</h6>
+                                <small class="text-muted" id="systemStatusText">已停止</small>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="col-md-6">
+                        <div class="d-flex align-items-center mb-3">
+                            <div class="flex-shrink-0">
+                                <i class="fas fa-clock text-info"></i>
+                            </div>
+                            <div class="flex-grow-1 ms-3">
+                                <h6 class="mb-0">最后更新</h6>
+                                <small class="text-muted" id="lastUpdate">-</small>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block extra_css %}
+<style>
+    .border-left-primary {
+        border-left: 0.25rem solid #4e73df !important;
+    }
+    
+    .border-left-success {
+        border-left: 0.25rem solid #1cc88a !important;
+    }
+    
+    .text-gray-800 {
+        color: #5a5c69 !important;
+    }
+    
+    .text-gray-300 {
+        color: #dddfeb !important;
+    }
+    
+    .chart-area {
+        position: relative;
+        height: 20rem;
+        width: 100%;
+    }
+    
+    .chart-pie {
+        position: relative;
+        height: 15rem;
+        width: 100%;
+    }
+    
+    .status-indicator {
+        width: 20px;
+        height: 20px;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+    }
+    
+    .status-indicator i {
+        font-size: 12px;
+    }
+</style>
+{% endblock %}
+
+{% block extra_js %}
+<script>
+let trendChart = null;
+let strategyChart = null;
+
+// 页面加载完成后初始化
+document.addEventListener('DOMContentLoaded', function() {
+    loadStats();
+    updateSystemStatus();
+    
+    // 每30秒自动刷新一次
+    setInterval(loadStats, 30000);
+    setInterval(updateSystemStatus, 10000);
+});
+
+// 加载统计数据
+async function loadStats() {
+    try {
+        showLoading();
+        const data = await apiRequest('/api/stats');
+        updateStatsDisplay(data);
+        updateCharts(data);
+        hideLoading();
+    } catch (error) {
+        console.error('加载统计数据失败:', error);
+        hideLoading();
+    }
+}
+
+// 更新统计显示
+function updateStatsDisplay(data) {
+    document.getElementById('totalTorrents').textContent = data.total_torrents;
+    document.getElementById('downloadedTorrents').textContent = data.downloaded_torrents;
+    document.getElementById('rejectedTorrents').textContent = data.rejected_torrents;
+    document.getElementById('downloadRate').textContent = data.download_rate.toFixed(1) + '%';
+    document.getElementById('todayTorrents').textContent = data.today_torrents;
+    document.getElementById('todayDownloaded').textContent = data.today_downloaded;
+    document.getElementById('lastUpdate').textContent = new Date().toLocaleString('zh-CN');
+}
+
+// 更新图表
+function updateCharts(data) {
+    updateTrendChart(data.trend_data);
+    updateStrategyChart(data.strategy_stats);
+}
+
+// 更新趋势图
+function updateTrendChart(trendData) {
+    const ctx = document.getElementById('trendChart').getContext('2d');
+    
+    if (trendChart) {
+        trendChart.destroy();
+    }
+    
+    const labels = trendData.map(item => {
+        const date = new Date(item.date);
+        return date.toLocaleDateString('zh-CN', { month: 'short', day: 'numeric' });
+    });
+    
+    const totalData = trendData.map(item => item.total);
+    const downloadedData = trendData.map(item => item.downloaded);
+    
+    trendChart = new Chart(ctx, {
+        type: 'line',
+        data: {
+            labels: labels,
+            datasets: [{
+                label: '总种子数',
+                data: totalData,
+                borderColor: 'rgb(75, 192, 192)',
+                backgroundColor: 'rgba(75, 192, 192, 0.2)',
+                tension: 0.1
+            }, {
+                label: '已下载',
+                data: downloadedData,
+                borderColor: 'rgb(255, 99, 132)',
+                backgroundColor: 'rgba(255, 99, 132, 0.2)',
+                tension: 0.1
+            }]
+        },
+        options: {
+            responsive: true,
+            maintainAspectRatio: false,
+            scales: {
+                y: {
+                    beginAtZero: true
+                }
+            },
+            plugins: {
+                legend: {
+                    position: 'top',
+                }
+            }
+        }
+    });
+}
+
+// 更新策略统计图
+function updateStrategyChart(strategyData) {
+    const ctx = document.getElementById('strategyChart').getContext('2d');
+    
+    if (strategyChart) {
+        strategyChart.destroy();
+    }
+    
+    const labels = strategyData.map(item => item.strategy || '未知');
+    const data = strategyData.map(item => item.count);
+    const colors = [
+        '#FF6384', '#36A2EB', '#FFCE56', '#4BC0C0', 
+        '#9966FF', '#FF9F40', '#FF6384', '#C9CBCF'
+    ];
+    
+    strategyChart = new Chart(ctx, {
+        type: 'doughnut',
+        data: {
+            labels: labels,
+            datasets: [{
+                data: data,
+                backgroundColor: colors.slice(0, data.length),
+                borderWidth: 2,
+                borderColor: '#fff'
+            }]
+        },
+        options: {
+            responsive: true,
+            maintainAspectRatio: false,
+            plugins: {
+                legend: {
+                    display: false
+                }
+            }
+        }
+    });
+    
+    // 更新图例
+    updateStrategyLegend(strategyData, colors);
+}
+
+// 更新策略图例
+function updateStrategyLegend(strategyData, colors) {
+    const legendContainer = document.getElementById('strategyLegend');
+    legendContainer.innerHTML = '';
+    
+    strategyData.forEach((item, index) => {
+        const legendItem = document.createElement('div');
+        legendItem.className = 'd-flex align-items-center justify-content-between mb-1';
+        legendItem.innerHTML = `
+            <div class="d-flex align-items-center">
+                <div class="legend-color" style="width: 12px; height: 12px; background-color: ${colors[index]}; border-radius: 2px; margin-right: 8px;"></div>
+                <span class="small">${item.strategy || '未知'}</span>
+            </div>
+            <span class="small font-weight-bold">${item.count}</span>
+        `;
+        legendContainer.appendChild(legendItem);
+    });
+}
+
+// 更新系统状态
+async function updateSystemStatus() {
+    try {
+        const data = await apiRequest('/api/stats');
+        const statusIndicator = document.getElementById('systemStatus');
+        const statusText = document.getElementById('systemStatusText');
+        
+        if (data.is_running) {
+            statusIndicator.innerHTML = '<i class="fas fa-circle text-success"></i>';
+            statusText.textContent = '运行中';
+            document.getElementById('startBtn').disabled = true;
+            document.getElementById('stopBtn').disabled = false;
+        } else {
+            statusIndicator.innerHTML = '<i class="fas fa-circle text-danger"></i>';
+            statusText.textContent = '已停止';
+            document.getElementById('startBtn').disabled = false;
+            document.getElementById('stopBtn').disabled = true;
+        }
+    } catch (error) {
+        console.error('更新系统状态失败:', error);
+    }
+}
+
+// 启动系统
+async function startSystem() {
+    try {
+        await apiRequest('/api/system/start', { method: 'POST' });
+        showNotification('系统启动成功');
+        updateSystemStatus();
+    } catch (error) {
+        console.error('启动系统失败:', error);
+    }
+}
+
+// 停止系统
+async function stopSystem() {
+    try {
+        await apiRequest('/api/system/stop', { method: 'POST' });
+        showNotification('系统停止成功');
+        updateSystemStatus();
+    } catch (error) {
+        console.error('停止系统失败:', error);
+    }
+}
+
+// 刷新统计数据
+function refreshStats() {
+    loadStats();
+    showNotification('数据已刷新');
+}
+</script>
+{% endblock %} 
