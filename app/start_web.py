@@ -7,22 +7,23 @@ import os
 import sys
 import logging
 from web_app import app, init_app
-
-# 配置日志
-logging.basicConfig(
-    level=logging.INFO,
-    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
-    handlers=[
-        logging.FileHandler('logs/web_app.log', encoding='utf-8'),
-        logging.StreamHandler(sys.stdout)
-    ]
-)
+from init_directories import init_directories
 
 def main():
     """主函数"""
     try:
-        # 创建日志目录
-        os.makedirs('logs', exist_ok=True)
+        # 初始化目录
+        init_directories()
+        
+        # 配置日志
+        logging.basicConfig(
+            level=logging.INFO,
+            format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
+            handlers=[
+                logging.FileHandler('logs/web_app.log', encoding='utf-8'),
+                logging.StreamHandler(sys.stdout)
+            ]
+        )
         
         # 初始化应用
         init_app()
