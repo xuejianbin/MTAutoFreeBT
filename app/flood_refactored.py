@@ -10,6 +10,7 @@ import json
 import pytz
 import requests
 from qbittorrent_client import QBittorrentClient
+from strategies.strategy_manager import StrategyManager
 
 # 时区映射信息
 tzinfos = {"CST": pytz.timezone("Asia/Shanghai")}
@@ -41,8 +42,14 @@ DATA_FILE = "flood_data.json"
 WEBHOOK_URL = os.environ.get("WEBHOOK_URL", None)
 WEBHOOK_KEY = os.environ.get("WEBHOOK_KEY", None)
 
+# 策略配置
+STRATEGY_CONFIG_FILE = os.environ.get("STRATEGY_CONFIG_FILE", "strategies/config_example.json")
+
 mt_session = requests.Session()
 flood_torrents = []
+
+# 全局策略管理器
+strategy_manager = None
 
 
 # 添加Telegram通知
@@ -207,7 +214,18 @@ def get_torrent_url(torrent_id):
 
 # 每隔一段时间访问MT获取RSS并添加种子到QBittorrent（重构版本）
 def flood_task():
-    global flood_torrents
+    global flood_torrents, strategy_manager
+    
+    # 初始化策略管理器
+    if strategy_manager is None:
+        try:
+            strategy_manager = StrategyManager(STRATEGY_CONFIG_FILE)
+            logging.info(f"策略管理器初始化成功，使用配置文件: {STRATEGY_CONFIG_FILE}")
+            logging.info(f"当前策略: {strategy_manager.get_current_strategy().get_strategy_name() if strategy_manager.get_current_strategy() else 'None'}")
+        except Exception as e:
+            logging.error(f"策略管理器初始化失败: {e}")
+            logging.info("使用默认策略")
+            strategy_manager = StrategyManager()
     
     # 使用新的 qBittorrent 客户端
     with QBittorrentClient() as qb_client:
@@ -275,29 +293,8 @@ def flood_task():
             if any(torrent_id == torrent["id"] for torrent in flood_torrents):
                 logging.info(f"种子{torrent_id}已经添加过，跳过")
                 continue
-            # 如果发布时间超过PUBLISH_BEFORE则跳过
-            local_timezone = pytz.timezone("Asia/Shanghai")
-            now_with_tz = datetime.now(local_timezone)
-            if now_with_tz - publish_time > timedelta(seconds=PUBLISH_BEFORE):
-                logging.info(
-                    f"种子{torrent_id}发布时间超过{PUBLISH_BEFORE / 60 / 60:.2f}小时，跳过"
-                )
-                continue
-            if size > MAX_SIZE:
-                logging.info(
-                    f"种子{torrent_id}大小超过{MAX_SIZE / 1024 / 1024 / 1024:.2f}G，忽略种子"
-                )
-                continue
-            if size < MIN_SIZE:
-                logging.info(
-                    f"种子{torrent_id}大小小于{MIN_SIZE / 1024 / 1024 / 1024:.2f}G，忽略种子"
-                )
-                continue
-            if disk_space - size < SPACE:
-                logging.info(
-                    f"种子{torrent_id}大小为{size}，下载后磁盘空间将小于{SPACE / 1024 / 1024 / 1024:.2f}G，忽略种子"
-                )
-                continue
+            
+            # 获取种子详细信息
             logging.info(f"开始获取种子{torrent_id}信息")
             time.sleep(random.randint(5, 10))
             detail = get_torrent_detail(torrent_id)
@@ -310,6 +307,7 @@ def flood_task():
             seeders = detail["seeders"]
             leechers = detail["leechers"]
 
+            # 基本免费检查（保留原有逻辑作为兜底）
             if discount is None:
                 logging.info(
                     f"种子{torrent_id}非免费或请求异常，忽略种子, 信息为：{detail}"
@@ -318,20 +316,55 @@ def flood_task():
             if discount not in ["FREE", "_2X_FREE"]:
                 logging.info(f"种子{torrent_id}非免费资源，忽略种子，状态为：{discount}")
                 continue
-            if (
-                discount_end_time is not None
-                and discount_end_time < datetime.now() + timedelta(seconds=FREE_TIME)
-            ):
-                logging.info(
-                    f"种子{torrent_id}剩余免费时间小于{FREE_TIME / 60 / 60:.2f}小时，忽略种子"
-                )
-                continue
-            if seeders <= 0:
-                logging.info(f"种子{torrent_id}无人做种，忽略种子")
-                continue
-            if leechers / seeders <= LS_RATIO:
-                logging.info(f"种子{torrent_id}下载/做种比例小于{LS_RATIO}，忽略种子")
-                continue
+
+            # 构建种子信息字典供策略使用
+            torrent_info = {
+                "id": torrent_id,
+                "name": name,
+                "size": size,
+                "discount": discount,
+                "discount_end_time": discount_end_time,
+                "seeders": seeders,
+                "leechers": leechers,
+                "publish_time": publish_time,
+                "disk_space": disk_space
+            }
+
+            # 使用策略系统判断是否下载
+            try:
+                should_download = strategy_manager.should_download(torrent_info)
+                if not should_download:
+                    logging.info(f"策略系统拒绝下载种子 {torrent_id}: {name}")
+                    continue
+                
+                # 获取优先级（可选，用于日志记录）
+                priority = strategy_manager.get_priority(torrent_info)
+                logging.info(f"种子 {torrent_id} 通过策略检查，优先级: {priority:.2f}")
+                
+            except Exception as e:
+                logging.error(f"策略系统执行失败: {e}")
+                # 策略系统失败时，使用原有的兜底逻辑
+                if size > MAX_SIZE:
+                    logging.info(
+                        f"种子{torrent_id}大小超过{MAX_SIZE / 1024 / 1024 / 1024:.2f}G，忽略种子"
+                    )
+                    continue
+                if size < MIN_SIZE:
+                    logging.info(
+                        f"种子{torrent_id}大小小于{MIN_SIZE / 1024 / 1024 / 1024:.2f}G，忽略种子"
+                    )
+                    continue
+                if disk_space - size < SPACE:
+                    logging.info(
+                        f"种子{torrent_id}大小为{size}，下载后磁盘空间将小于{SPACE / 1024 / 1024 / 1024:.2f}G，忽略种子"
+                    )
+                    continue
+                if seeders <= 0:
+                    logging.info(f"种子{torrent_id}无人做种，忽略种子")
+                    continue
+                if leechers / seeders <= LS_RATIO:
+                    logging.info(f"种子{torrent_id}下载/做种比例小于{LS_RATIO}，忽略种子")
+                    continue
 
             logging.info(
                 f"{name}种子{torrent_id}，大小为{size / 1024 / 1024 / 1024:.2f}G,状态为：{discount}"

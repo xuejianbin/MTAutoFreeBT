@@ -1,0 +1,113 @@
+{
+  "strategy_configs": {
+    "conservative": {
+      "type": "composite",
+      "combination_type": "and",
+      "weights": [0.4, 0.3, 0.3],
+      "strategies": [
+        {
+          "type": "size",
+          "params": {
+            "min_size": 1073741824,
+            "max_size": 10737418240,
+            "min_disk_space": 85899345920,
+            "size_priority_weight": 1.0
+          }
+        },
+        {
+          "type": "ratio",
+          "params": {
+            "min_seeders": 5,
+            "min_ratio": 0.2,
+            "max_ratio": 5.0,
+            "ratio_priority_weight": 1.0,
+            "prefer_high_seeders": true
+          }
+        },
+        {
+          "type": "time",
+          "params": {
+            "max_publish_age": 43200,
+            "min_free_time": 18000,
+            "time_priority_weight": 1.0,
+            "prefer_new_torrents": true,
+            "time_decay_factor": 0.05
+          }
+        }
+      ]
+    },
+    "aggressive": {
+      "type": "composite",
+      "combination_type": "or",
+      "weights": [0.5, 0.3, 0.2],
+      "strategies": [
+        {
+          "type": "size",
+          "params": {
+            "min_size": 536870912,
+            "max_size": 21474836480,
+            "min_disk_space": 42949672960,
+            "size_priority_weight": 1.0
+          }
+        },
+        {
+          "type": "ratio",
+          "params": {
+            "min_seeders": 1,
+            "min_ratio": 0.1,
+            "max_ratio": 15.0,
+            "ratio_priority_weight": 1.0,
+            "prefer_high_seeders": false
+          }
+        },
+        {
+          "type": "time",
+          "params": {
+            "max_publish_age": 86400,
+            "min_free_time": 7200,
+            "time_priority_weight": 1.0,
+            "prefer_new_torrents": true,
+            "time_decay_factor": 0.1
+          }
+        }
+      ]
+    },
+    "balanced": {
+      "type": "composite",
+      "combination_type": "weighted",
+      "weights": [0.4, 0.35, 0.25],
+      "strategies": [
+        {
+          "type": "size",
+          "params": {
+            "min_size": 1073741824,
+            "max_size": 16106127360,
+            "min_disk_space": 64424509440,
+            "size_priority_weight": 1.0
+          }
+        },
+        {
+          "type": "ratio",
+          "params": {
+            "min_seeders": 3,
+            "min_ratio": 0.15,
+            "max_ratio": 8.0,
+            "ratio_priority_weight": 1.0,
+            "prefer_high_seeders": true
+          }
+        },
+        {
+          "type": "time",
+          "params": {
+            "max_publish_age": 64800,
+            "min_free_time": 14400,
+            "time_priority_weight": 1.0,
+            "prefer_new_torrents": true,
+            "time_decay_factor": 0.08
+          }
+        }
+      ]
+    }
+  },
+  "default_strategy": "balanced"
+} 
