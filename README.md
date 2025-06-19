@@ -39,13 +39,19 @@ docker run -e QBURL='http://192.168.1.10:8080' shangling/mt-auto-free-to-qb:late
 | TAGS           | 配置刷流的种子的TAG，多个TAG用`,`分隔，如`tag1,tag2`              | MT刷流                   | 是     |
 | LS_RATIO       | 配置刷流的种子的最低`下载数/做种数`比例，小于此值不推送                     | 1.0                      | 是     |
 |IPV6| 配置是否使用IPV6,不使用则默认为IPV4                            |True|是|
+| WEBHOOK_URL     | Webhook推送的URL地址，不配置默认不推送                        | None                     | 是     |
+| WEBHOOK_KEY     | Webhook推送的鉴权key，可选，用于部分Webhook服务安全校验         | None                     | 是     |
 
-
-
-```
 GET_METHOD:
     True/False
     True为程序下载下来种子然后推送给QB，
     False为程序推送下载链接给QB由QB服务器自行下载种子
     目的为避免QB服务器无法访问馒头，导致添加种子失败。
-```
+
+Webhook 推送说明：
+- WEBHOOK_URL：配置后，程序会在种子添加成功、磁盘空间不足等事件发生时，向该URL以POST方式推送消息，消息体为JSON格式，如：
+  `{ "message": "xxx", "key": "xxx(可选)" }`
+- WEBHOOK_KEY：如需鉴权，可在此处填写，消息体会自动携带该key字段。
+- 若不需要Webhook推送，可不配置这两个参数。
+
+
