@@ -114,7 +114,7 @@ class StrategyFactory:
             'min_free_time': 10 * 60 * 60,  # 10小时
         })
         
-        # 创建组合策略
+        # 创建组合策略 - 只传递策略对象，不包含在配置中
         composite_config = {
             'strategies': [size_strategy, ratio_strategy, time_strategy],
             'combination_type': 'and',

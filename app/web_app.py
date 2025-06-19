@@ -236,14 +236,19 @@ def get_strategies():
             return jsonify({'error': '策略管理器未初始化'}), 500
         
         strategies = []
+        current_strategy = strategy_manager.get_current_strategy()
+        
         for name in strategy_manager.get_available_strategies():
             strategy = strategy_manager.get_strategy(name)
             info = strategy_manager.get_strategy_info(name)
-            strategies.append({
+            
+            # 确保只返回可序列化的数据
+            strategy_data = {
                 'name': name,
                 'info': info,
-                'is_current': strategy == strategy_manager.get_current_strategy()
-            })
+                'is_current': strategy is current_strategy  # 使用 is 比较对象引用
+            }
+            strategies.append(strategy_data)
         
         return jsonify({'strategies': strategies})
     except Exception as e:

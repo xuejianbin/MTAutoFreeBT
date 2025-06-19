@@ -176,14 +176,39 @@ class StrategyManager:
         if not strategy:
             return {"error": f"策略 {name} 不存在"}
         
+        # 确保配置数据是可序列化的
+        config = getattr(strategy, 'config', {})
+        if config:
+            # 深度复制配置，确保没有不可序列化的对象
+            import copy
+            try:
+                config = copy.deepcopy(config)
+                # 特别处理组合策略，移除策略对象
+                if 'strategies' in config and isinstance(config['strategies'], list):
+                    # 将策略对象替换为策略名称
+                    strategy_names = []
+                    for s in config['strategies']:
+                        if hasattr(s, 'get_strategy_name'):
+                            strategy_names.append(s.get_strategy_name())
+                        else:
+                            strategy_names.append(str(type(s).__name__))
+                    config['strategies'] = strategy_names
+            except Exception as e:
+                # 如果深度复制失败，创建一个简化的配置
+                self.logger.warning(f"配置序列化失败: {e}")
+                config = {}
+        
         info = {
             "name": name,
             "type": strategy.get_strategy_name(),
-            "config": getattr(strategy, 'config', {}),
+            "config": config,
         }
         
         if hasattr(strategy, 'validate_config'):
-            info["valid"] = strategy.validate_config()
+            try:
+                info["valid"] = strategy.validate_config()
+            except:
+                info["valid"] = False
         
         return info
     
