@@ -108,9 +108,15 @@ def init_app():
     with app.app_context():
         db.create_all()
     
-    # 初始化策略管理器
+    # 初始化策略管理器 - 先不传入数据库会话，稍后设置
     config_file = os.environ.get("STRATEGY_CONFIG_FILE", "strategies/config_example.json")
     strategy_manager = StrategyManager(config_file)
+    
+    # 设置数据库会话
+    strategy_manager.db_session = db.session
+    
+    # 重新加载配置以从数据库加载策略
+    strategy_manager.reload_config()
     
     # 初始化QBittorrent客户端
     qb_host = os.environ.get("QB_HOST", "http://localhost:8080")
@@ -228,7 +234,7 @@ def get_torrents():
         logging.error(f"获取种子列表失败: {e}")
         return jsonify({'error': str(e)}), 500
 
-@app.route('/api/strategies')
+@app.route('/api/strategies', methods=['GET'])
 def get_strategies():
     """获取策略列表"""
     try:
@@ -255,6 +261,79 @@ def get_strategies():
         logging.error(f"获取策略列表失败: {e}")
         return jsonify({'error': str(e)}), 500
 
+@app.route('/api/strategies', methods=['POST'])
+def create_strategy():
+    """创建新策略"""
+    try:
+        if not strategy_manager:
+            return jsonify({'error': '策略管理器未初始化'}), 500
+        
+        data = request.get_json()
+        if not data:
+            return jsonify({'error': '无效的请求数据'}), 400
+        
+        name = data.get('name')
+        strategy_type = data.get('type')
+        description = data.get('description', '')
+        config = data.get('config', {})
+        
+        if not name or not strategy_type:
+            return jsonify({'error': '策略名称和类型不能为空'}), 400
+        
+        # 检查策略名称是否已存在
+        if name in strategy_manager.get_available_strategies():
+            return jsonify({'error': '策略名称已存在'}), 400
+        
+        # 创建策略配置
+        strategy_config = {
+            'type': strategy_type,
+            'description': description,
+            'params': config
+        }
+        
+        # 保存到数据库
+        config_record = StrategyConfig(
+            name=name,
+            config_data=json.dumps(strategy_config),
+            is_active=False
+        )
+        db.session.add(config_record)
+        db.session.commit()
+        
+        # 重新加载策略管理器
+        strategy_manager.reload_config()
+        
+        return jsonify({'message': f'策略 {name} 创建成功'})
+        
+    except Exception as e:
+        logging.error(f"创建策略失败: {e}")
+        return jsonify({'error': str(e)}), 500
+
+@app.route('/api/strategies/<strategy_name>', methods=['GET'])
+def get_strategy_detail(strategy_name):
+    """获取策略详情"""
+    try:
+        if not strategy_manager:
+            return jsonify({'error': '策略管理器未初始化'}), 500
+        
+        if strategy_name not in strategy_manager.get_available_strategies():
+            return jsonify({'error': '策略不存在'}), 404
+        
+        info = strategy_manager.get_strategy_info(strategy_name)
+        strategy = strategy_manager.get_strategy(strategy_name)
+        current_strategy = strategy_manager.get_current_strategy()
+        
+        return jsonify({
+            'name': strategy_name,
+            'info': info,
+            'is_current': strategy is current_strategy,
+            'config': info.get('config', {})
+        })
+        
+    except Exception as e:
+        logging.error(f"获取策略详情失败: {e}")
+        return jsonify({'error': str(e)}), 500
+
 @app.route('/api/strategies/<strategy_name>', methods=['PUT'])
 def update_strategy(strategy_name):
     """更新策略配置"""
@@ -266,17 +345,118 @@ def update_strategy(strategy_name):
         if not data:
             return jsonify({'error': '无效的请求数据'}), 400
         
-        # 这里可以添加策略配置更新的逻辑
-        # 暂时只是设置当前策略
-        success = strategy_manager.set_current_strategy(strategy_name)
+        action = data.get('action')
         
-        if success:
-            return jsonify({'message': f'策略 {strategy_name} 设置成功'})
+        if action == 'set_current':
+            # 设置当前策略
+            success = strategy_manager.set_current_strategy(strategy_name)
+            if success:
+                return jsonify({'message': f'策略 {strategy_name} 设置成功'})
+            else:
+                return jsonify({'error': f'策略 {strategy_name} 设置失败'}), 400
+        
+        elif action == 'update_config':
+            # 更新策略配置
+            new_config = data.get('config', {})
+            description = data.get('description', '')
+            
+            # 更新数据库中的配置
+            config_record = StrategyConfig.query.filter_by(name=strategy_name).first()
+            if not config_record:
+                return jsonify({'error': '策略配置不存在'}), 404
+            
+            # 获取现有配置
+            existing_config = json.loads(config_record.config_data)
+            existing_config['description'] = description
+            existing_config['params'] = new_config
+            
+            config_record.config_data = json.dumps(existing_config)
+            config_record.updated_at = datetime.utcnow()
+            db.session.commit()
+            
+            # 重新加载策略管理器
+            strategy_manager.reload_config()
+            
+            return jsonify({'message': f'策略 {strategy_name} 配置更新成功'})
+        
         else:
-            return jsonify({'error': f'策略 {strategy_name} 设置失败'}), 400
+            return jsonify({'error': '无效的操作'}), 400
             
     except Exception as e:
         logging.error(f"更新策略失败: {e}")
+        return jsonify({'error': str(e)}), 500
+
+@app.route('/api/strategies/<strategy_name>', methods=['DELETE'])
+def delete_strategy(strategy_name):
+    """删除策略"""
+    try:
+        if not strategy_manager:
+            return jsonify({'error': '策略管理器未初始化'}), 500
+        
+        # 检查是否为当前策略
+        current_strategy = strategy_manager.get_current_strategy()
+        if current_strategy and strategy_manager.get_strategy(strategy_name) is current_strategy:
+            return jsonify({'error': '不能删除当前正在使用的策略'}), 400
+        
+        # 从数据库删除
+        config_record = StrategyConfig.query.filter_by(name=strategy_name).first()
+        if config_record:
+            db.session.delete(config_record)
+            db.session.commit()
+        
+        # 重新加载策略管理器
+        strategy_manager.reload_config()
+        
+        return jsonify({'message': f'策略 {strategy_name} 删除成功'})
+        
+    except Exception as e:
+        logging.error(f"删除策略失败: {e}")
+        return jsonify({'error': str(e)}), 500
+
+@app.route('/api/strategies/<strategy_name>/test', methods=['POST'])
+def test_strategy(strategy_name):
+    """测试策略"""
+    try:
+        if not strategy_manager:
+            return jsonify({'error': '策略管理器未初始化'}), 500
+        
+        data = request.get_json()
+        if not data:
+            return jsonify({'error': '无效的请求数据'}), 400
+        
+        # 模拟种子信息
+        torrent_info = {
+            'id': 'test_123',
+            'name': data.get('name', '测试种子'),
+            'size': data.get('size', 5 * 1024 * 1024 * 1024),  # 5GB
+            'discount': data.get('discount', 'FREE'),
+            'discount_end_time': datetime.utcnow() + timedelta(hours=data.get('free_time', 20)),
+            'seeders': data.get('seeders', 10),
+            'leechers': data.get('leechers', 5),
+            'publish_time': datetime.utcnow() - timedelta(hours=data.get('publish_age', 2)),
+            'disk_space': data.get('disk_space', 100 * 1024 * 1024 * 1024)  # 100GB
+        }
+        
+        # 临时设置策略进行测试
+        original_strategy = strategy_manager.get_current_strategy()
+        strategy_manager.set_current_strategy(strategy_name)
+        
+        # 测试策略
+        should_download = strategy_manager.should_download(torrent_info)
+        priority = strategy_manager.get_priority(torrent_info)
+        
+        # 恢复原策略
+        if original_strategy:
+            strategy_manager.set_current_strategy(original_strategy.name)
+        
+        return jsonify({
+            'should_download': should_download,
+            'priority': priority,
+            'torrent_info': torrent_info
+        })
+        
+    except Exception as e:
+        logging.error(f"测试策略失败: {e}")
         return jsonify({'error': str(e)}), 500
 
 @app.route('/api/system/start', methods=['POST'])

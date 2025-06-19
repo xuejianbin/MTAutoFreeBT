@@ -14,15 +14,17 @@ from .base_strategy import BaseStrategy
 class StrategyManager:
     """策略管理器类"""
     
-    def __init__(self, config_file: str = "strategies/config_example.json"):
+    def __init__(self, config_file: str = "strategies/config_example.json", db_session=None):
         """
         初始化策略管理器
         
         Args:
             config_file: 策略配置文件路径
+            db_session: 数据库会话对象（可选）
         """
         self.logger = logging.getLogger(self.__class__.__name__)
         self.config_file = config_file
+        self.db_session = db_session
         self.factory = StrategyFactory()
         self.strategies = {}
         self.current_strategy = None
@@ -31,9 +33,71 @@ class StrategyManager:
     def load_config(self):
         """加载策略配置"""
         try:
-            if not os.path.exists(self.config_file):
-                self.logger.warning(f"配置文件 {self.config_file} 不存在，使用默认策略")
+            # 首先尝试从数据库加载
+            if self.db_session:
+                self._load_from_database()
+            
+            # 如果数据库中没有策略，则从文件加载
+            if not self.strategies:
+                self._load_from_file()
+            
+            # 如果都没有，创建默认策略
+            if not self.strategies:
                 self._create_default_strategies()
+                
+        except Exception as e:
+            self.logger.error(f"加载策略配置失败: {e}")
+            self._create_default_strategies()
+    
+    def _load_from_database(self):
+        """从数据库加载策略配置"""
+        try:
+            # 延迟导入以避免循环导入
+            import sys
+            if 'web_app' in sys.modules:
+                from web_app import StrategyConfig
+            else:
+                # 如果web_app模块未加载，跳过数据库加载（这是正常情况）
+                return
+            
+            configs = self.db_session.query(StrategyConfig).all()
+            
+            for config_record in configs:
+                try:
+                    config_data = json.loads(config_record.config_data)
+                    strategy_type = config_data.get('type')
+                    params = config_data.get('params', {})
+                    
+                    # 创建策略配置
+                    strategy_config = {
+                        'type': strategy_type,
+                        'params': params
+                    }
+                    
+                    # 创建策略对象
+                    strategy = self.factory.create_strategy_from_config(strategy_config)
+                    if strategy:
+                        self.strategies[config_record.name] = strategy
+                        self.logger.info(f"从数据库加载策略: {config_record.name}")
+                        
+                        # 如果是激活的策略，设为当前策略
+                        if config_record.is_active:
+                            self.current_strategy = strategy
+                            self.logger.info(f"设置当前策略: {config_record.name}")
+                    else:
+                        self.logger.error(f"从数据库加载策略 {config_record.name} 失败")
+                        
+                except Exception as e:
+                    self.logger.error(f"解析数据库策略配置失败 {config_record.name}: {e}")
+                    
+        except Exception as e:
+            self.logger.error(f"从数据库加载策略失败: {e}")
+    
+    def _load_from_file(self):
+        """从文件加载策略配置"""
+        try:
+            if not os.path.exists(self.config_file):
+                self.logger.warning(f"配置文件 {self.config_file} 不存在")
                 return
             
             with open(self.config_file, 'r', encoding='utf-8') as f:
@@ -47,9 +111,9 @@ class StrategyManager:
                 strategy = self.factory.create_strategy_from_config(strategy_config)
                 if strategy:
                     self.strategies[name] = strategy
-                    self.logger.info(f"成功加载策略: {name}")
+                    self.logger.info(f"从文件加载策略: {name}")
                 else:
-                    self.logger.error(f"加载策略 {name} 失败")
+                    self.logger.error(f"从文件加载策略 {name} 失败")
             
             # 设置默认策略
             if default_strategy in self.strategies:
@@ -60,12 +124,9 @@ class StrategyManager:
                 if self.strategies:
                     first_strategy = next(iter(self.strategies.values()))
                     self.current_strategy = first_strategy
-                else:
-                    self._create_default_strategies()
                     
         except Exception as e:
-            self.logger.error(f"加载策略配置失败: {e}")
-            self._create_default_strategies()
+            self.logger.error(f"从文件加载策略配置失败: {e}")
     
     def _create_default_strategies(self):
         """创建默认策略"""

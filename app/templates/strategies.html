@@ -136,6 +136,32 @@
         </div>
     </div>
 </div>
+
+<!-- 测试策略模态框 -->
+<div class="modal fade" id="testStrategyModal" tabindex="-1">
+    <div class="modal-dialog modal-lg">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title">策略测试</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+            </div>
+            <div class="modal-body">
+                <div class="text-center py-4">
+                    <div class="spinner-border text-primary" role="status">
+                        <span class="visually-hidden">测试中...</span>
+                    </div>
+                    <p class="mt-2">正在测试策略...</p>
+                </div>
+                <div id="testResultContent">
+                    <!-- 测试结果将在这里显示 -->
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">关闭</button>
+            </div>
+        </div>
+    </div>
+</div>
 {% endblock %}
 
 {% block extra_js %}
@@ -417,15 +443,26 @@ async function createStrategy() {
             if (input.type === 'checkbox') {
                 strategyData.config[input.name] = input.checked;
             } else {
-                strategyData.config[input.name] = input.value;
+                const value = input.value;
+                // 转换数值类型
+                if (input.name.includes('size') || input.name.includes('disk_space')) {
+                    strategyData.config[input.name] = parseFloat(value) * 1024 * 1024 * 1024; // 转换为字节
+                } else if (input.name.includes('time') || input.name.includes('age')) {
+                    strategyData.config[input.name] = parseFloat(value) * 3600; // 转换为秒
+                } else if (input.name.includes('ratio') || input.name.includes('decay')) {
+                    strategyData.config[input.name] = parseFloat(value);
+                } else if (input.name.includes('seeders') || input.name.includes('leechers')) {
+                    strategyData.config[input.name] = parseInt(value);
+                } else {
+                    strategyData.config[input.name] = value;
+                }
             }
         });
         
-        // 这里应该调用API创建策略
-        // await apiRequest('/api/strategies', {
-        //     method: 'POST',
-        //     body: JSON.stringify(strategyData)
-        // });
+        await apiRequest('/api/strategies', {
+            method: 'POST',
+            body: JSON.stringify(strategyData)
+        });
         
         showNotification('策略创建成功');
         bootstrap.Modal.getInstance(document.getElementById('createStrategyModal')).hide();
@@ -445,21 +482,53 @@ function showStrategyDetail(strategyName) {
     const modal = new bootstrap.Modal(document.getElementById('strategyDetailModal'));
     const content = document.getElementById('strategyDetailContent');
     
+    let configHtml = '';
+    if (strategy.info.config) {
+        configHtml = `
+            <div class="row">
+                <div class="col-12">
+                    <h6>配置参数</h6>
+                    <div class="table-responsive">
+                        <table class="table table-sm">
+                            <tbody>
+                                ${Object.entries(strategy.info.config).map(([key, value]) => 
+                                    `<tr><td><code>${key}</code></td><td>${value}</td></tr>`
+                                ).join('')}
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+            </div>
+        `;
+    }
+    
     content.innerHTML = `
         <div class="row">
             <div class="col-md-6">
                 <h6>基本信息</h6>
                 <table class="table table-sm">
                     <tr><td>名称:</td><td>${strategy.name}</td></tr>
-                    <tr><td>类型:</td><td>${strategy.info.type || '未知'}</td></tr>
-                    <tr><td>状态:</td><td>${strategy.is_current ? '当前策略' : '未激活'}</td></tr>
+                    <tr><td>类型:</td><td><span class="badge bg-primary">${strategy.info.type || '未知'}</span></td></tr>
+                    <tr><td>状态:</td><td>${strategy.is_current ? '<span class="badge bg-success">当前策略</span>' : '<span class="badge bg-secondary">未激活</span>'}</td></tr>
+                    <tr><td>描述:</td><td>${strategy.info.description || '暂无描述'}</td></tr>
                 </table>
             </div>
             <div class="col-md-6">
-                <h6>配置信息</h6>
-                <pre class="bg-light p-3 rounded"><code>${JSON.stringify(strategy.info.config, null, 2)}</code></pre>
+                <h6>操作</h6>
+                <div class="d-grid gap-2">
+                    <button class="btn btn-outline-primary btn-sm" onclick="testStrategy('${strategy.name}')">
+                        <i class="fas fa-play me-1"></i>测试策略
+                    </button>
+                    <button class="btn btn-outline-warning btn-sm" onclick="editStrategy('${strategy.name}')">
+                        <i class="fas fa-edit me-1"></i>编辑策略
+                    </button>
+                    ${!strategy.is_current ? `<button class="btn btn-outline-danger btn-sm" onclick="deleteStrategy('${strategy.name}')">
+                        <i class="fas fa-trash me-1"></i>删除策略
+                    </button>` : ''}
+                </div>
             </div>
         </div>
+        ${configHtml}
     `;
     
     modal.show();
@@ -474,39 +543,280 @@ function editStrategy(strategyName) {
     const modal = new bootstrap.Modal(document.getElementById('editStrategyModal'));
     const content = document.getElementById('editStrategyContent');
     
-    content.innerHTML = `
-        <div class="alert alert-info">
-            <i class="fas fa-info-circle me-2"></i>
-            策略编辑功能正在开发中...
-        </div>
-        <p>当前策略: <strong>${strategy.name}</strong></p>
-        <p>类型: <strong>${strategy.info.type || '未知'}</strong></p>
+    // 生成编辑表单
+    let formHtml = `
+        <form id="editStrategyForm">
+            <div class="row">
+                <div class="col-md-6">
+                    <div class="mb-3">
+                        <label class="form-label">策略名称</label>
+                        <input type="text" class="form-control" name="name" value="${strategy.name}" readonly>
+                    </div>
+                </div>
+                <div class="col-md-6">
+                    <div class="mb-3">
+                        <label class="form-label">策略类型</label>
+                        <input type="text" class="form-control" value="${strategy.info.type || '未知'}" readonly>
+                    </div>
+                </div>
+            </div>
+            
+            <div class="mb-3">
+                <label class="form-label">策略描述</label>
+                <textarea class="form-control" name="description" rows="2">${strategy.info.description || ''}</textarea>
+            </div>
+            
+            <div id="editStrategyConfigArea">
+                ${generateEditConfigHtml(strategy)}
+            </div>
+        </form>
     `;
     
+    content.innerHTML = formHtml;
     modal.show();
 }
 
+// 生成编辑配置HTML
+function generateEditConfigHtml(strategy) {
+    const config = strategy.info.config || {};
+    const type = strategy.info.type;
+    
+    switch (type) {
+        case 'size':
+            return `
+                <h6>大小策略配置</h6>
+                <div class="row">
+                    <div class="col-md-6">
+                        <div class="mb-3">
+                            <label class="form-label">最小大小 (GB)</label>
+                            <input type="number" class="form-control" name="min_size" value="${(config.min_size || 1073741824) / (1024*1024*1024)}" min="0" step="0.1">
+                        </div>
+                    </div>
+                    <div class="col-md-6">
+                        <div class="mb-3">
+                            <label class="form-label">最大大小 (GB)</label>
+                            <input type="number" class="form-control" name="max_size" value="${(config.max_size || 10737418240) / (1024*1024*1024)}" min="0" step="0.1">
+                        </div>
+                    </div>
+                </div>
+                <div class="mb-3">
+                    <label class="form-label">最小磁盘空间 (GB)</label>
+                    <input type="number" class="form-control" name="min_disk_space" value="${(config.min_disk_space || 85899345920) / (1024*1024*1024)}" min="0" step="1">
+                </div>
+            `;
+            
+        case 'ratio':
+            return `
+                <h6>比率策略配置</h6>
+                <div class="row">
+                    <div class="col-md-6">
+                        <div class="mb-3">
+                            <label class="form-label">最小做种数</label>
+                            <input type="number" class="form-control" name="min_seeders" value="${config.min_seeders || 3}" min="0">
+                        </div>
+                    </div>
+                    <div class="col-md-6">
+                        <div class="mb-3">
+                            <label class="form-label">最小比率</label>
+                            <input type="number" class="form-control" name="min_ratio" value="${config.min_ratio || 0.2}" min="0" step="0.1">
+                        </div>
+                    </div>
+                </div>
+                <div class="row">
+                    <div class="col-md-6">
+                        <div class="mb-3">
+                            <label class="form-label">最大比率</label>
+                            <input type="number" class="form-control" name="max_ratio" value="${config.max_ratio || 5.0}" min="0" step="0.1">
+                        </div>
+                    </div>
+                    <div class="col-md-6">
+                        <div class="mb-3">
+                            <div class="form-check mt-4">
+                                <input class="form-check-input" type="checkbox" name="prefer_high_seeders" ${config.prefer_high_seeders ? 'checked' : ''}>
+                                <label class="form-check-label">偏好高做种数</label>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            `;
+            
+        case 'time':
+            return `
+                <h6>时间策略配置</h6>
+                <div class="row">
+                    <div class="col-md-6">
+                        <div class="mb-3">
+                            <label class="form-label">最大发布时间 (小时)</label>
+                            <input type="number" class="form-control" name="max_publish_age" value="${(config.max_publish_age || 43200) / 3600}" min="0">
+                        </div>
+                    </div>
+                    <div class="col-md-6">
+                        <div class="mb-3">
+                            <label class="form-label">最小免费时间 (小时)</label>
+                            <input type="number" class="form-control" name="min_free_time" value="${(config.min_free_time || 18000) / 3600}" min="0">
+                        </div>
+                    </div>
+                </div>
+                <div class="row">
+                    <div class="col-md-6">
+                        <div class="mb-3">
+                            <div class="form-check">
+                                <input class="form-check-input" type="checkbox" name="prefer_new_torrents" ${config.prefer_new_torrents ? 'checked' : ''}>
+                                <label class="form-check-label">偏好新种子</label>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="col-md-6">
+                        <div class="mb-3">
+                            <label class="form-label">时间衰减因子</label>
+                            <input type="number" class="form-control" name="time_decay_factor" value="${config.time_decay_factor || 0.05}" min="0" max="1" step="0.01">
+                        </div>
+                    </div>
+                </div>
+            `;
+            
+        case 'composite':
+            return `
+                <h6>复合策略配置</h6>
+                <div class="mb-3">
+                    <label class="form-label">组合类型</label>
+                    <select class="form-select" name="combination_type">
+                        <option value="and" ${config.combination_type === 'and' ? 'selected' : ''}>AND (所有策略都必须满足)</option>
+                        <option value="or" ${config.combination_type === 'or' ? 'selected' : ''}>OR (任一策略满足即可)</option>
+                        <option value="weighted" ${config.combination_type === 'weighted' ? 'selected' : ''}>加权平均</option>
+                    </select>
+                </div>
+                <div class="alert alert-info">
+                    <i class="fas fa-info-circle me-2"></i>
+                    复合策略的详细配置需要手动编辑配置文件。
+                </div>
+            `;
+            
+        default:
+            return `
+                <div class="alert alert-warning">
+                    <i class="fas fa-exclamation-triangle me-2"></i>
+                    未知策略类型，无法编辑配置。
+                </div>
+            `;
+    }
+}
+
 // 保存策略更改
-function saveStrategyChanges() {
-    showNotification('策略编辑功能正在开发中');
-    bootstrap.Modal.getInstance(document.getElementById('editStrategyModal')).hide();
+async function saveStrategyChanges() {
+    try {
+        const form = document.getElementById('editStrategyForm');
+        const formData = new FormData(form);
+        
+        const strategyData = {
+            action: 'update_config',
+            description: formData.get('description'),
+            config: {}
+        };
+        
+        // 收集配置参数
+        const configInputs = form.querySelectorAll('[name^="min_"], [name^="max_"], [name^="prefer_"], [name^="time_"], [name^="combination_"]');
+        configInputs.forEach(input => {
+            if (input.type === 'checkbox') {
+                strategyData.config[input.name] = input.checked;
+            } else {
+                const value = input.value;
+                // 转换数值类型
+                if (input.name.includes('size') || input.name.includes('disk_space')) {
+                    strategyData.config[input.name] = parseFloat(value) * 1024 * 1024 * 1024; // 转换为字节
+                } else if (input.name.includes('time') || input.name.includes('age')) {
+                    strategyData.config[input.name] = parseFloat(value) * 3600; // 转换为秒
+                } else if (input.name.includes('ratio') || input.name.includes('decay')) {
+                    strategyData.config[input.name] = parseFloat(value);
+                } else if (input.name.includes('seeders') || input.name.includes('leechers')) {
+                    strategyData.config[input.name] = parseInt(value);
+                } else {
+                    strategyData.config[input.name] = value;
+                }
+            }
+        });
+        
+        await apiRequest(`/api/strategies/${currentEditingStrategy.name}`, {
+            method: 'PUT',
+            body: JSON.stringify(strategyData)
+        });
+        
+        showNotification('策略配置更新成功');
+        bootstrap.Modal.getInstance(document.getElementById('editStrategyModal')).hide();
+        loadStrategies();
+        
+    } catch (error) {
+        console.error('保存策略更改失败:', error);
+        showNotification('保存策略更改失败', 'danger');
+    }
 }
 
 // 删除策略
 async function deleteStrategy(strategyName) {
-    if (!confirm(`确定要删除策略 "${strategyName}" 吗？`)) {
+    if (!confirm(`确定要删除策略 "${strategyName}" 吗？此操作不可恢复。`)) {
         return;
     }
     
     try {
-        // 这里应该调用API删除策略
-        // await apiRequest(`/api/strategies/${strategyName}`, { method: 'DELETE' });
+        await apiRequest(`/api/strategies/${strategyName}`, { method: 'DELETE' });
         
-        showNotification('策略删除功能正在开发中');
+        showNotification('策略删除成功');
         loadStrategies();
     } catch (error) {
         console.error('删除策略失败:', error);
         showNotification('删除策略失败', 'danger');
+    }
+}
+
+// 测试策略
+async function testStrategy(strategyName) {
+    try {
+        // 显示测试模态框
+        const testModal = new bootstrap.Modal(document.getElementById('testStrategyModal'));
+        testModal.show();
+        
+        // 模拟种子信息
+        const testData = {
+            name: '测试种子',
+            size: 5 * 1024 * 1024 * 1024, // 5GB
+            discount: 'FREE',
+            free_time: 20,
+            seeders: 10,
+            leechers: 5,
+            publish_age: 2,
+            disk_space: 100 * 1024 * 1024 * 1024 // 100GB
+        };
+        
+        const result = await apiRequest(`/api/strategies/${strategyName}/test`, {
+            method: 'POST',
+            body: JSON.stringify(testData)
+        });
+        
+        // 显示测试结果
+        const resultHtml = `
+            <div class="alert ${result.should_download ? 'alert-success' : 'alert-warning'}">
+                <h6>测试结果</h6>
+                <p><strong>下载决策:</strong> ${result.should_download ? '应该下载' : '不应该下载'}</p>
+                <p><strong>优先级分数:</strong> ${result.priority.toFixed(3)}</p>
+            </div>
+            <div class="alert alert-info">
+                <h6>测试种子信息</h6>
+                <ul class="mb-0">
+                    <li>名称: ${result.torrent_info.name}</li>
+                    <li>大小: ${(result.torrent_info.size / (1024*1024*1024)).toFixed(2)} GB</li>
+                    <li>折扣: ${result.torrent_info.discount}</li>
+                    <li>做种数: ${result.torrent_info.seeders}</li>
+                    <li>下载数: ${result.torrent_info.leechers}</li>
+                    <li>发布时间: ${result.torrent_info.publish_age} 小时前</li>
+                </ul>
+            </div>
+        `;
+        
+        document.getElementById('testResultContent').innerHTML = resultHtml;
+        
+    } catch (error) {
+        console.error('测试策略失败:', error);
+        showNotification('测试策略失败', 'danger');
     }
 }
 
