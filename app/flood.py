@@ -39,6 +39,9 @@ LS_RATIO = float(os.environ.get("LS_RATIO", 1))
 IPV6 = os.environ.get("IPV6", False)
 DATA_FILE = "flood_data.json"
 
+WEBHOOK_URL = os.environ.get("WEBHOOK_URL", None)
+WEBHOOK_KEY = os.environ.get("WEBHOOK_KEY", None)
+
 qb_session = requests.Session()
 mt_session = requests.Session()
 flood_torrents = []
@@ -78,6 +81,25 @@ def send_server3_message(message):
         logging.info("消息发送成功！")
     else:
         logging.info("消息发送失败！")
+
+
+# 新增Webhook消息推送
+def send_webhook_message(message):
+    if WEBHOOK_URL is None:
+        return
+    logging.info(f"发送消息通知到Webhook: {message}")
+    data = {"message": message}
+    if WEBHOOK_KEY:
+        data["key"] = WEBHOOK_KEY
+    try:
+        response = requests.post(WEBHOOK_URL, json=data)
+    except requests.exceptions.RequestException as e:
+        logging.error(f"发送Webhook通知失败，请求异常：{e}")
+        return
+    if response.status_code == 200:
+        logging.info("Webhook消息发送成功！")
+    else:
+        logging.info(f"Webhook消息发送失败！HTTP状态码: {response.status_code}")
 
 
 # 从MT获取种子信息
@@ -166,6 +188,7 @@ def add_torrent(url, name):
     logging.info(f"种子{name}添加成功！")
     send_telegram_message(f"种子{name}添加成功！")
     send_server3_message(f"种子{name}添加成功！")
+    send_webhook_message(f"种子{name}添加成功！")
     return True
 
 
@@ -233,6 +256,9 @@ def flood_task():
             f"磁盘空间不足，停止刷流，当前剩余空间为{disk_space / 1024 / 1024 / 1024:.2f}G"
         )
         send_server3_message(
+            f"磁盘空间不足，停止刷流，当前剩余空间为{disk_space / 1024 / 1024 / 1024:.2f}G"
+        )
+        send_webhook_message(
             f"磁盘空间不足，停止刷流，当前剩余空间为{disk_space / 1024 / 1024 / 1024:.2f}G"
         )
         return
@@ -363,7 +389,10 @@ def flood_task():
             send_telegram_message(
                 f"磁盘空间不足，停止刷流，当前剩余空间为{disk_space / 1024 / 1024 / 1024:.2f}G"
             )
-            send_telegram_message(
+            send_server3_message(
+                f"磁盘空间不足，停止刷流，当前剩余空间为{disk_space / 1024 / 1024 / 1024:.2f}G"
+            )
+            send_webhook_message(
                 f"磁盘空间不足，停止刷流，当前剩余空间为{disk_space / 1024 / 1024 / 1024:.2f}G"
             )
             break
