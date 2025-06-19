@@ -4,15 +4,13 @@ import dotenv
 import logging
 
 dotenv.load_dotenv(verbose=True, override=True)
-from flood import flood_task, login, read_config, save_config
+from flood_refactored import flood_task, setup_mt_session, read_config, save_config
 
 CYCLE = int(float(os.environ.get("CYCLE", 0.5)) * 60 * 60)
 
 if __name__ == "__main__":
     read_config()
-    if not login():
-        logging.error("QB登录失败，程序退出。")
-        exit(1)
+    setup_mt_session()
     while True:
         flood_task()
         save_config()
