@@ -47,12 +47,9 @@ jobs:
           platforms: linux/amd64,linux/arm64,linux/arm/v7
           push: ${{ github.event_name == 'push' }}
           tags: |
-            # ${{ secrets.DOCKERHUB_USERNAME }}/mt-auto-free-to-qb:${{ steps.meta.outputs.major }}
-            # ${{ secrets.DOCKERHUB_USERNAME }}/mt-auto-free-to-qb:${{ steps.meta.outputs.minor }}
             ${{ secrets.DOCKERHUB_USERNAME }}/mt-auto-free-to-qb:${{ steps.meta.outputs.version }}
             ${{ secrets.DOCKERHUB_USERNAME }}/mt-auto-free-to-qb:latest
             ${{ secrets.DOCKERHUB_USERNAME }}/mt-auto-free-to-qb:sha-${{ github.sha }}
-            # ${{ secrets.DOCKERHUB_USERNAME }}/mt-auto-free-to-qb:build-${{ steps.meta.outputs.date }}
           labels: |
             org.opencontainers.image.version=${{ steps.meta.outputs.version }}
             org.opencontainers.image.created=${{ steps.meta.outputs.date }}
